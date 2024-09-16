@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salidas y Llegadas - Aeropuerto de Bariloche</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #00008B; /* Fondo azul oscuro */
+            color: white; /* Texto en blanco */
+            font-family: 'Arial', sans-serif;
+        }
+        .flight-board {
+            background-color: #00008B;
+            color: white;
+            font-family: 'Arial', sans-serif;
+            text-align: center;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+            border: 2px solid white;
+        }
+        .flight-board h2 {
+            color: white;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .flight-info {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid gray;
+            color: white;
+        }
+        .flight-info span {
+            flex: 1;
+            text-align: center;
+            font-size: 1.2rem;
+        }
+        .highlighted {
+            color: yellow; /* Color amarillo para vuelos destacados */
+        }
+        .on-time {
+            color: green; /* Verde para vuelos a tiempo */
+        }
+        .delayed {
+            color: red; /* Rojo para vuelos demorados */
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="flight-board">
+            <h2>Salidas y Llegadas - Aeropuerto de Bariloche</h2>
+            <div id="flight-details"></div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = '9e57532f917dd5c4ecea93f3c29f9b51';
+        const endpoint = `http://api.aviationstack.com/v1/flights?access_key=${apiKey}&arr_iata=BRC&limit=8`;
+        const flightDetailsContainer = document.getElementById('flight-details');
+
+        const airlines = {
+            'AR': 'Aerolíneas Argentinas',
+            'FO': 'Flybondi',
+            'LA': 'LATAM Airlines',
+            'JU': 'JetSMART',
+            // Añadir más aerolíneas según sea necesario
+        };
+
+        function cargarVuelos() {
+            fetch(endpoint)
+                .then(response => response.json())
+                .then(data => {
+                    const flights = data.data.filter(flight => flight.flight.iata && airlines[flight.flight.iata.substring(0, 2)]);
+                    flightDetailsContainer.innerHTML = ""; // Limpiar el contenedor
+
+                    if (flights && flights.length > 0) {
+                        flights.forEach(flight => {
+                            const statusClass = flight.flight_status === 'active' ? 'highlighted' : flight.flight_status === 'scheduled' ? 'on-time' : 'delayed';
+                            const horaSalida = new Date(flight.departure.estimated || flight.departure.scheduled).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false });
+                            const airlineName = airlines[flight.flight.iata.substring(0, 2)] || 'Aerolínea Desconocida';
+
+                            const flightInfo = `
+                                <div class="flight-info ${statusClass}">
+                                    <span>${horaSalida}</span>
+                                    <span>${flight.arrival.airport || 'Desconocido'}</span>
+                                    <span>${flight.flight.iata || 'N/A'}</span>
+                                    <span>${airlineName}</span>
+                                    <span>${flight.flight_status === 'active' ? 'En Vuelo' : flight.flight_status === 'scheduled' ? 'Programado' : 'Demorado'}</span>
+                                </div>`;
+                            flightDetailsContainer.innerHTML += flightInfo;
+                        });
+                    } else {
+                        flightDetailsContainer.innerHTML = "<div class='flight-info'>No hay vuelos en tránsito en este momento. Próximos vuelos:</div>";
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al obtener los datos de vuelos:', error);
+                    flightDetailsContainer.innerHTML = `<div class='flight-info'>Error al obtener los datos de vuelos: ${error.message}</div>`;
+                });
+        }
+
+        // Llama a la función para cargar vuelos cada 20 minutos
+        setInterval(cargarVuelos, 1200000); // 1200000 ms = 20 minutos
+        cargarVuelos(); // Primera llamada al cargar la página
+    </script>
+</body>
+</html>

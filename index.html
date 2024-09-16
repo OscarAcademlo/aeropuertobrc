@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vuelos en Tiempo Real - Argentina</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://openlayers.org/en/v6.5.0/css/ol.css">
+    <script src="https://openlayers.org/en/v6.5.0/build/ol.js"></script>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4">Vuelos en Tiempo Real - Argentina</h2>
+        <div id="flights" class="row"></div>
+        
+        <!-- Card para mostrar el mapa -->
+        <h2 class="mt-5 mb-4">Mapa de Vuelos en Tiempo Real</h2>
+        <div id="map" class="mb-5" style="width: 100%; height: 500px;"></div>
+    </div>
+
+    <script>
+        const endpoint = `https://opensky-network.org/api/states/all?lamin=-55.0&lomin=-73.5&lamax=-21.0&lomax=-53.5`;
+        let vectorSource = new ol.source.Vector();
+        let map;
+        const airports = {};
+
+        // Cargar la base de datos de aeropuertos desde el CSV
+        function loadAirports() {
+            fetch('airports.csv')
+                .then(response => response.text())
+                .then(data => {
+                    const lines = data.split('\n');
+                    lines.forEach(line => {
+                        const [icao_code, iata_code, airport_name, city, country] = line.split(',');
+                        airports[icao_code] = { airport_name, city, country };
+                    });
+                    cargarVuelos(); // Cargar vuelos después de cargar la base de datos
+                });
+        }
+
+        function cargarVuelos() {
+            fetch(endpoint)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Error en la solicitud a la API: ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const flights = data.states;
+                    const flightsContainer = document.getElementById('flights');
+
+                    if (!flights || flights.length === 0) {
+                        flightsContainer.innerHTML = "<p>No se encontraron vuelos en Argentina.</p>";
+                        return;
+                    }
+
+                    flightsContainer.innerHTML = "";
+                    vectorSource.clear();
+
+                    flights.forEach(flight => {
+                        const origenInfo = airports[flight[2]] || { airport_name: 'Desconocido', city: 'Desconocido' };
+                        const destinoInfo = airports[flight[3]] || { airport_name: 'Desconocido', city: 'Desconocido' };
+
+                        const flightCard = `
+                            <div class="col-md-4">
+                                <div class="card mb-4">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Vuelo: ${flight[1] || 'Desconocido'}</h5>
+                                        <p class="card-text">Código ICAO: ${flight[0] || 'N/A'}</p>
+                                        <p class="card-text">Origen: ${origenInfo.airport_name}, ${origenInfo.city}</p>
+                                        <p class="card-text">Destino: ${destinoInfo.airport_name}, ${destinoInfo.city}</p>
+                                        <p class="card-text">Posición: Latitud ${flight[6]}, Longitud ${flight[5]}</p>
+                                        <p class="card-text">Altitud: ${flight[13] ? flight[13] + ' metros' : 'N/A'}</p>
+                                        <p class="card-text">Velocidad: ${flight[9] ? (flight[9] * 3.6).toFixed(2) + ' km/h' : 'N/A'}</p>
+                                    </div>
+                                </div>
+                            </div>`;
+                        flightsContainer.innerHTML += flightCard;
+
+                        if (flight[5] && flight[6]) {
+                            const feature = new ol.Feature({
+                                geometry: new ol.geom.Point(ol.proj.fromLonLat([flight[5], flight[6]])),
+                                name: flight[1] || 'Desconocido',
+                                data: {
+                                    icao: flight[0],
+                                    origen: `${origenInfo.airport_name}, ${origenInfo.city}`,
+                                    destino: `${destinoInfo.airport_name}, ${destinoInfo.city}`,
+                                    altitud: flight[13] || 'N/A',
+                                    velocidad: flight[9] ? (flight[9] * 3.6).toFixed(2) + ' km/h' : 'N/A'
+                                }
+                            });
+
+                            feature.setStyle(new ol.style.Style({
+                                image: new ol.style.Icon({
+                                    anchor: [0.5, 0.5],
+                                    src: 'https://upload.wikimedia.org/wikipedia/commons/e/ec/RedDot.svg',
+                                    scale: 0.1
+                                }),
+                                text: new ol.style.Text({
+                                    text: flight[1] || 'Vuelo Desconocido',
+                                    offsetY: -15,
+                                    fill: new ol.style.Fill({ color: 'black' })
+                                })
+                            }));
+
+                            vectorSource.addFeature(feature);
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('flights').innerHTML = `<p>Error al obtener los datos de vuelos: ${error.message}</p>`;
+                });
+        }
+
+        function inicializarMapa() {
+            vectorSource = new ol.source.Vector();
+
+            const vectorLayer = new ol.layer.Vector({
+                source: vectorSource
+            });
+
+            map = new ol.Map({
+                target: 'map',
+                layers: [
+                    new ol.layer.Tile({
+                        source: new ol.source.OSM()
+                    }),
+                    vectorLayer
+                ],
+                view: new ol.View({
+                    center: ol.proj.fromLonLat([-64.0, -34.0]),
+                    zoom: 4
+                })
+            });
+
+            // Cambia el intervalo a 60,000 milisegundos (1 minuto)
+            setInterval(cargarVuelos, 60000);
+            
+            map.on('singleclick', function(evt) {
+                const feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
+                    return feature;
+                });
+
+                if (feature) {
+                    const flightData = feature.get('data');
+                    alert(`Información del Vuelo:\n` +
+                          `Vuelo: ${feature.get('name')}\n` +
+                          `Código ICAO: ${flightData.icao}\n` +
+                          `Origen: ${flightData.origen}\n` +
+                          `Destino: ${flightData.destino}\n` +
+                          `Altitud: ${flightData.altitud}\n` +
+                          `Velocidad: ${flightData.velocidad}`);
+                }
+            });
+        }
+
+        inicializarMapa(); // Ejecutar la inicialización del mapa al cargar la página
+        loadAirports(); // Cargar la base de datos de aeropuertos
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
